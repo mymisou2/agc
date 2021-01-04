@@ -78,10 +78,10 @@ def read_fasta(amplicon_file, minseqlen):
     with open(amplicon_file) as monf:
         seq = ''
         for line in monf:
-            if (len(seq) >= minseqlen and '>' in line):
+            if (len(seq) >= minseqlen and line.startswith(">")):
                 yield seq
                 seq = ''
-            elif '>' not in line:
+            elif line.startswith(">"):
                 seq = seq + line.replace(" ", "").replace("\n", "")
             else:
                 seq = ''
@@ -253,13 +253,14 @@ def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
         for j in range(len(chunk_mates)):
             parents = common(parents, chunk_mates[j])
 
-        if len(parents) > 1:
+
+        if len(parents) >= 2:
+            perc_identity_matrix = [[] for nb_chunk in range(len(chunks))]
             for parent in parents[0:2]:
                 chunk_ref = get_chunks(list_non_chimere[parent], chunk_size)
-                perc_identity_matrix = [[]]
                 for element, chunk in enumerate(chunks_courant):
                     align = nw.global_align(chunk, chunk_ref[element])
-                    identite =  get_identity(align)
+                    identite = get_identity(align)
                     perc_identity_matrix[element].append(identite)
 
         if not detect_chimera(perc_identity_matrix):
@@ -309,6 +310,11 @@ def main():
     """
     # Get arguments
     args = get_arguments()
+    file = args.amplicon_file
+    if isfile(file):
+        otu_cluster = abundance_greedy_clustering(file, args.minseqlen,
+                  args.mincount, args.chunk_size, args.kmer_size)
+        write_OTU(otu_cluster, args.output_file)
 
 if __name__ == '__main__':
     main()
