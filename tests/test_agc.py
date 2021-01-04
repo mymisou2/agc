@@ -46,7 +46,7 @@ def test_get_chunks():
     # we should obtain 4 chunks of the correct size
     assert(len(chunks) == 4)
     # a 80nt chunk
-    assert(chunks[0] == seq[0:50]) 
+    assert(chunks[0] == seq[0:50])
     # a 80nt chunk
     assert(chunks[1] == seq[50:100])
 
@@ -75,29 +75,6 @@ def test_cut_kmer():
         assert(True)
 
 
-def test_get_unique_kmer():
-    """
-    """
-    kmer_dict = get_unique_kmer({}, "TGGGGAATATTGCACAATGGGCGCAAGCCTGATGCAG", 0, 8)
-    kmer_dict = get_unique_kmer(kmer_dict, "GGGGAATATTGCACAATGGGCGCAAGCCTGATGCAGC", 1, 8)
-    assert(len(kmer_dict) == 31)
-    assert(len(kmer_dict["TGGGGAAT"]) == 1)
-    assert(len(kmer_dict["GGGGAATA"]) == 2)
-    assert(len(kmer_dict["GATGCAGC"]) == 1)
-
-
-def test_search_mates():
-    """
-    """
-    kmer_dict = get_unique_kmer({}, "TGGGGAATATTGCACAATGGGCGCAAGCCTGATGCAG", 0, 8)
-    kmer_dict = get_unique_kmer(kmer_dict, "GGGGAATATTGCACAATGGGCGCAAGCCTGATGCAGC", 1, 8)
-    kmer_dict = get_unique_kmer(kmer_dict, "GGGAATATTGCACAATGGGCGCAAGCCTGATGCAGCC", 2, 8)
-    best_mates = search_mates(kmer_dict, "GGAATATTGCACAATGGGCGCAAGCCTGATGCAGCCA", 8)
-    assert(len(best_mates) == 3)
-    assert(best_mates[0] == 2)
-    assert(best_mates[1] == 1)
-    assert(best_mates[2] == 0)
-
 def test_get_identity():
     """
     """
@@ -120,7 +97,7 @@ def test_detect_chimera():
     for i in range(len(chunk_seq_list)):
         for l,chunk in enumerate(chunk_chim):
             perc_identity_matrix[l].append(get_identity(
-                        nw.global_align(chunk, chunk_seq_list[i][l], 
+                        nw.global_align(chunk, chunk_seq_list[i][l],
                             gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),
                                                 '../agc')) + "/MATCH")))
     # [[48.89, 100.0], [51.16, 100.0], [84.62, 58.54], [94.74, 45.65]]
@@ -148,12 +125,3 @@ def test_write_OTU():
     write_OTU(otu, test_file)
     with open(test_file, 'rb') as otu_test:
         assert hashlib.md5(otu_test.read()).hexdigest() == "0a7caf3d43ba5f0c68bc05cb74782dbb"
-
-
-
-
-
-
-
-
-
