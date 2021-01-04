@@ -17,7 +17,6 @@ import sys
 import os
 import statistics
 from collections import Counter
-from itertools import groupby
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
 import nwalign3 as nw
@@ -54,7 +53,7 @@ def get_arguments():
                                      "{0} -h"
                                      .format(sys.argv[0]))
     parser.add_argument('-i', '-amplicon_file', dest='amplicon_file', type=isfile, required=True,
-                        help="Amplicon is a compressed fasta file (.fasta.gz)")
+                        help="Amplicon is NOT a compressed fasta file")
     parser.add_argument('-s', '-minseqlen', dest='minseqlen', type=int, default = 400,
                         help="Minimum sequence length for dereplication")
     parser.add_argument('-m', '-mincount', dest='mincount', type=int, default = 10,
@@ -70,10 +69,10 @@ def get_arguments():
 def read_fasta(amplicon_file, minseqlen):
     """
     Genreateur de séquences
-    Input:
-        fastq_file: fichier fastq
-    Return
-        un générateur de séquences
+    input:
+        - fastq_file: fichier fastq
+    output
+        - un générateur de séquences
     """
     with open(amplicon_file) as monf:
         seq = ''
@@ -81,7 +80,7 @@ def read_fasta(amplicon_file, minseqlen):
             if (len(seq) >= minseqlen and line.startswith(">")):
                 yield seq
                 seq = ''
-            elif line.startswith(">"):
+            elif not line.startswith(">"):
                 seq = seq + line.replace(" ", "").replace("\n", "")
             else:
                 seq = ''
@@ -100,14 +99,16 @@ def dereplication_fulllength(amplicon_file, minseqlen, mincount):
     - occurrence
     """
     generator_seq = read_fasta(amplicon_file, minseqlen)
-    list_seq_occ =  list()
-    for seq, gen in groupby(generator_seq):
-        count_el = sum(1 for i in gen)
+    dictionnaire_seq = dict()
+    for sequence in generator_seq:
+        if sequence not in dictionnaire_seq:
+            dictionnaire_seq[sequence] = 1
+        else:
+            dictionnaire_seq[sequence] += 1
+    dictionnaire_seq = sorted(dictionnaire_seq.items(), key=lambda x: x[1], reverse = True)
+    for sequence, count_el in dictionnaire_seq:
         if count_el >= mincount:
-            list_seq_occ.append((seq, count_el))
-            list_seq_occ.sort(key = lambda x: x[1], reverse=True)
-    for seq in list_seq_occ:
-        yield seq
+            yield [sequence, count_el]
 
 def get_chunks(sequence, chunk_size):
     """
@@ -175,7 +176,7 @@ def search_mates(kmer_dict, sequence, kmer_size):
         - sequence
         - kmer_size: taille du kmer
     output:
-        8 séquences les plus communes du dictionnaire de k-mer
+        - 8 séquences les plus communes du dictionnaire de k-mer
     """
     return [i[0] for i in Counter([ids for kmer in cut_kmer(sequence, kmer_size)
         if kmer in kmer_dict for ids in kmer_dict[kmer]]).most_common(8)]
@@ -186,7 +187,6 @@ def detect_chimera(perc_identity_matrix):
         - perc_identity_matrix: matrice identité des séquences
     output:
         - True/False: est une chimère
-
     Si l’écart type moyen des pourcentages d’identité est supérieur à 5 et
     que 2 segments minimum de notre séquence montrent une similarité différente
     à un des deux parents, nous identifierons cette séquence comme chimérique
@@ -222,6 +222,26 @@ def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
         kmer_dict[i].append(id_seq)
     return kmer_dict
 
+def calcul_identity_matrix(chunks_courant, parents, chunk_size, list_non_chimere):
+    """
+    input:
+        - chunks_courant: chunks de la séquence courante
+        - parents: les 2 séquences parentes possibles
+        - chunk_size: taille du chunk
+        - list_non_chimere: liste de séquences non chimériques
+    output:
+        - perc_identity_matrix: matrice donnant par segment le taux d’identité
+        entre la séquence candidate et deux séquences parente
+    """
+    perc_identity_matrix = [[] for nb_chunk in range(len(chunks_courant))]
+    for parent in parents:
+        chunk_ref = get_chunks(list_non_chimere[parent], chunk_size)
+        for element, chunk in enumerate(chunks_courant):
+            res_alignement = nw.global_align(chunk, chunk_ref[element])
+            res_identite = get_identity(res_alignement)
+            perc_identity_matrix[element].append(res_identite)
+    return perc_identity_matrix
+
 def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
     """
     input:
@@ -234,34 +254,30 @@ def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
         generateur de sequences non chimériques [sequence, count]:
         - sequence: une sequence non chimérique
         - count: son nombre d'occurence
+    Pour chacune des séquences différentes - seq - , chaque segment
+    trouvé - sub_seq- , s'il y a des séquences parentes
+    (au minimum 2)- parents - , on procède à un alignement
+    global - res_alignement- segment par segment avec les séquences
+    parentes - chunk_ref - . Si on a un shift on peut en déduire
+    qu'il s'agit d'une chimère et on ne prend pas en compte la séquence
     """
-    generator_seq_unique = dereplication_fulllength(amplicon_file, minseqlen, mincount)
     kmer_dict = {}
     list_non_chimere = list()
     perc_identity_matrix = []
     id_seq = 0
+    generator_seq_unique = dereplication_fulllength(amplicon_file, minseqlen, mincount)
+
     for seq, compteur in generator_seq_unique:
-        chunks_courant = get_chunks(seq, chunk_size)
-        chunks_courant = chunks_courant[:4]
-        chunk_mates = []
-        for sub_seq in chunks_courant:
-            mates = search_mates(kmer_dict, sub_seq, kmer_size)
-            chunk_mates.append(mates)
+        chunks_courant = get_chunks(seq, chunk_size)[:4]
 
+        chunk_mates = [search_mates(kmer_dict, sub_seq, kmer_size) for sub_seq in chunks_courant]
         parents = []
-
-        for j in range(len(chunk_mates)):
+        for j, _ in enumerate(chunk_mates):
             parents = common(parents, chunk_mates[j])
 
-
         if len(parents) >= 2:
-            perc_identity_matrix = [[] for nb_chunk in range(len(chunks))]
-            for parent in parents[0:2]:
-                chunk_ref = get_chunks(list_non_chimere[parent], chunk_size)
-                for element, chunk in enumerate(chunks_courant):
-                    align = nw.global_align(chunk, chunk_ref[element])
-                    identite = get_identity(align)
-                    perc_identity_matrix[element].append(identite)
+            perc_identity_matrix = calcul_identity_matrix(chunks_courant,
+                parents[:2], chunk_size, list_non_chimere)
 
         if not detect_chimera(perc_identity_matrix):
             kmer_dict = get_unique_kmer(kmer_dict, seq, id_seq, kmer_size)
@@ -304,6 +320,7 @@ def write_OTU(otu_list, output_file):
 #==============================================================
 # Main program
 #==============================================================
+
 def main():
     """
     Main program function
